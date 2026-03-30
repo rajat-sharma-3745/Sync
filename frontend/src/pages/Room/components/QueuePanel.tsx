@@ -44,7 +44,7 @@ async function fetchYoutubeVideoTitle(videoId: string): Promise<string> {
 }
 
 const QueuePanel = () => {
-  const { currentRoom, queue } = useRoom();
+  const { currentRoom, queue, presence } = useRoom();
   const { user } = useAuth();
   const { pushToast } = useUi();
   const { socket } = useSocket();
@@ -119,6 +119,14 @@ const QueuePanel = () => {
 
   const sortedQueue = [...queue].sort((a, b) => a.position - b.position);
 
+  const getAddedByUsername = (addedByUserId: string): string => {
+    if (user?.id === addedByUserId) return user.username;
+    return (
+      presence.find((member) => member.userId === addedByUserId)?.username ??
+      'Unknown user'
+    );
+  };
+
   return (
     <section className="flex flex-col rounded-lg border border-neutral-800 bg-neutral-950/50">
       <h3 className="border-b border-neutral-800 px-3 py-2 text-sm font-medium text-neutral-300">
@@ -165,9 +173,12 @@ const QueuePanel = () => {
                 ) : (
                   <div className="h-12 w-20 shrink-0 rounded bg-neutral-800" />
                 )}
-                <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">
-                  {item.title}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-neutral-200">{item.title}</p>
+                  <p className="truncate text-xs text-neutral-500">
+                    Added by {getAddedByUsername(item.addedByUserId)}
+                  </p>
+                </div>
                 {canManageQueue && (
                   <Button
                     type="button"
