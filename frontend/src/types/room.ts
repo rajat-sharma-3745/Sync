@@ -8,6 +8,31 @@ export interface Room {
   queueLocked: boolean;
   createdAt: string;
   updatedAt: string;
+  currentVideoId?: string;
+  currentTime?: number;
+  isPlaying?: boolean;
+  playbackRate?: number;
+}
+
+export interface RoomMemberPreview {
+  userId: string;
+  username: string;
+  avatarUrl?: string;
+}
+
+/** Room row returned by list endpoints (public + my rooms). */
+export interface RoomListItem extends Room {
+  hostUsername: string;
+  hostAvatarUrl?: string;
+  currentVideoTitle?: string;
+  memberCount: number;
+  memberPreview: RoomMemberPreview[];
+}
+
+export type RoomMemberRole = 'HOST' | 'MEMBER';
+
+export interface MyRoomListItem extends RoomListItem {
+  role: RoomMemberRole;
 }
 
 export interface QueueItem {

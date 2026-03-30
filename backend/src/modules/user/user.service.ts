@@ -1,11 +1,13 @@
 import { StatusCodes } from 'http-status-codes';
 import { User, type IUser } from '../../db/models/User.js';
 import { Room, type IRoom } from '../../db/models/Room.js';
-import {
-  RoomMember,
-  type IRoomMember,
-} from '../../db/models/RoomMember.js';
+import { RoomMember } from '../../db/models/RoomMember.js';
 import { ApiError } from '../../utils/apiError.js';
+import { RoomMemberRole } from '../../types/common.js';
+import {
+  enrichRoomsForList,
+  type RoomListItemDto,
+} from '../room/room.service.js';
 import type { UpdateProfileInput } from './user.schemas.js';
 
 export interface UserProfileDto {
@@ -15,14 +17,8 @@ export interface UserProfileDto {
   createdAt: Date;
 }
 
-export interface UserRoomDto {
-  id: string;
-  name: string;
-  description?: string;
-  isPublic: boolean;
-  hostId: string;
-  role: IRoomMember['role'];
-  createdAt: Date;
+export interface MyRoomListItemDto extends RoomListItemDto {
+  role: RoomMemberRole;
 }
 
 const toUserProfileDto = (user: IUser): UserProfileDto => ({
@@ -30,19 +26,6 @@ const toUserProfileDto = (user: IUser): UserProfileDto => ({
   email: user.email,
   username: user.username,
   createdAt: user.createdAt,
-});
-
-const toUserRoomDto = (
-  room: IRoom,
-  membership: IRoomMember,
-): UserRoomDto => ({
-  id: room._id.toString(),
-  name: room.name,
-  ...(room.description && {description: room.description}),
-  isPublic: room.isPublic,
-  hostId: room.hostId.toString(),
-  role: membership.role,
-  createdAt: room.createdAt,
 });
 
 export const getCurrentUser = async (
@@ -85,7 +68,7 @@ export const updateProfile = async (
 
 export const getUserRooms = async (
   userId: string,
-): Promise<UserRoomDto[]> => {
+): Promise<MyRoomListItemDto[]> => {
   const memberships = await RoomMember.find({ userId }).exec();
 
   if (memberships.length === 0) {
@@ -96,17 +79,15 @@ export const getUserRooms = async (
 
   const rooms = await Room.find({ _id: { $in: roomIds } }).exec();
 
-  const roomById = new Map<string, IRoom>();
-  for (const room of rooms) {
-    roomById.set(room._id.toString(), room);
-  }
+  const enriched = await enrichRoomsForList(rooms);
+  const enrichedById = new Map(enriched.map((r) => [r.id, r]));
 
-  const result: UserRoomDto[] = [];
+  const result: MyRoomListItemDto[] = [];
 
   for (const membership of memberships) {
-    const room = roomById.get(membership.roomId.toString());
-    if (!room) continue;
-    result.push(toUserRoomDto(room, membership));
+    const base = enrichedById.get(membership.roomId.toString());
+    if (!base) continue;
+    result.push({ ...base, role: membership.role });
   }
 
   return result;

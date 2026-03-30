@@ -76,7 +76,6 @@ const Navbar = () => {
             </span>
           </Link>
 
-          {/* Desktop nav – single Rooms link when authenticated */}
           <nav
             className="hidden items-center gap-1 text-neutral-300 sm:flex"
             aria-label="Main navigation"
@@ -88,7 +87,6 @@ const Navbar = () => {
             )}
           </nav>
 
-          {/* Right: user menu or login */}
           <div className="flex items-center gap-3">
             {isAuthenticated ? (
               <div className="relative" ref={userMenuRef}>
@@ -129,7 +127,6 @@ const Navbar = () => {
               </span>
             )}
 
-            {/* Mobile menu button */}
             <div ref={mobileMenuButtonRef} className="flex sm:hidden">
               <IconButton
                 aria-expanded={mobileMenuOpen}
@@ -155,7 +152,6 @@ const Navbar = () => {
           </div>
         </div>
 
-        {/* Mobile menu panel */}
         {mobileMenuOpen && (
           <div
             ref={mobileMenuRef}

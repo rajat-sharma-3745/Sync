@@ -7,12 +7,12 @@ import RoomCard from '../../components/room/RoomCard';
 import Button from '../../components/ui/Button';
 import { roomApi } from '../../api/roomApi';
 import { useUi } from '../../hooks/useUi';
-import type { Room } from '../../types/room';
+import type { RoomListItem } from '../../types/room';
 import { HttpError } from '../../api/httpClient';
 
 const RoomsMarketplacePage = () => {
   const { pushToast } = useUi();
-  const [rooms, setRooms] = useState<Room[]>([]);
+  const [rooms, setRooms] = useState<RoomListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

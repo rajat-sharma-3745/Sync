@@ -9,7 +9,7 @@ import { roomApi } from '../../api/roomApi';
 import { userApi } from '../../api/userApi';
 import { useAuth } from '../../hooks/useAuth';
 import { useUi } from '../../hooks/useUi';
-import type { Room } from '../../types/room';
+import type { MyRoomListItem, RoomListItem } from '../../types/room';
 import { HttpError } from '../../api/httpClient';
 
 const PUBLIC_PREVIEW_COUNT = 6;
@@ -17,8 +17,8 @@ const PUBLIC_PREVIEW_COUNT = 6;
 const DashboardPage = () => {
   const { user } = useAuth();
   const { pushToast } = useUi();
-  const [myRooms, setMyRooms] = useState<Room[]>([]);
-  const [publicRooms, setPublicRooms] = useState<Room[]>([]);
+  const [myRooms, setMyRooms] = useState<MyRoomListItem[]>([]);
+  const [publicRooms, setPublicRooms] = useState<RoomListItem[]>([]);
   const [loadingMyRooms, setLoadingMyRooms] = useState(true);
   const [loadingPublic, setLoadingPublic] = useState(true);
 
@@ -97,18 +97,11 @@ const DashboardPage = () => {
                 No rooms yet. Create one or browse public rooms.
               </p>
             ) : (
-              <ul className="mt-2 space-y-2">
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {myRooms.map((room) => (
-                  <li key={room.id}>
-                    <Link
-                      to={`/rooms/${room.id}`}
-                      className="text-emerald-400 hover:underline"
-                    >
-                      {room.name}
-                    </Link>
-                  </li>
+                  <RoomCard key={room.id} room={room} showJoinButton={false} />
                 ))}
-              </ul>
+              </div>
             )}
           </section>
 

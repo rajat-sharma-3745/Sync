@@ -1,4 +1,4 @@
-import type { Room } from '../types/room';
+import type { Room, RoomListItem } from '../types/room';
 import { httpClient } from './httpClient';
 
 export interface CreateRoomPayload {
@@ -8,8 +8,8 @@ export interface CreateRoomPayload {
 }
 
 export const roomApi = {
-  listPublicRooms: (): Promise<{ rooms: Room[] }> =>
-    httpClient.get<{ rooms: Room[] }>('/api/rooms/public'),
+  listPublicRooms: (): Promise<{ rooms: RoomListItem[] }> =>
+    httpClient.get<{ rooms: RoomListItem[] }>('/api/rooms/public'),
 
   createRoom: (payload: CreateRoomPayload): Promise<Room> =>
     httpClient.post<Room>('/api/rooms', payload),

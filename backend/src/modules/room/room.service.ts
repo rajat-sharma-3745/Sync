@@ -6,6 +6,8 @@ import {
   RoomMember,
   type IRoomMember,
 } from '../../db/models/RoomMember.js';
+import { User } from '../../db/models/User.js';
+import { QueueItem } from '../../db/models/QueueItem.js';
 import { ApiError } from '../../utils/apiError.js';
 import { RoomMemberRole } from '../../types/common.js';
 import { assertIsHost } from '../../utils/permissions.js';
@@ -33,6 +35,143 @@ export interface RoomDto {
 export interface RoomWithRoleDto extends RoomDto {
   role: RoomMemberRole;
 }
+
+export interface RoomMemberPreviewDto {
+  userId: string;
+  username: string;
+  avatarUrl?: string;
+}
+
+export interface RoomListItemDto extends RoomDto {
+  hostUsername: string;
+  hostAvatarUrl?: string;
+  currentVideoTitle?: string;
+  memberCount: number;
+  memberPreview: RoomMemberPreviewDto[];
+}
+
+const MEMBER_PREVIEW_LIMIT = 4;
+
+export const enrichRoomsForList = async (
+  rooms: IRoom[],
+): Promise<RoomListItemDto[]> => {
+  if (rooms.length === 0) {
+    return [];
+  }
+
+  const roomObjectIds = rooms.map((r) => r._id);
+  const hostObjectIds = [
+    ...new Set(rooms.map((r) => r.hostId.toString())),
+  ].map((id) => new Types.ObjectId(id));
+
+  const orClauses = rooms
+    .filter((r) => r.currentVideoId)
+    .map((r) => ({
+      roomId: r._id,
+      videoId: r.currentVideoId as string,
+    }));
+
+  const [hosts, countAgg, memberRows, queueItems] = await Promise.all([
+    User.find({ _id: { $in: hostObjectIds } })
+      .select('username avatarUrl')
+      .lean(),
+    RoomMember.aggregate<{ _id: Types.ObjectId; count: number }>([
+      { $match: { roomId: { $in: roomObjectIds }, isBanned: false } },
+      { $group: { _id: '$roomId', count: { $sum: 1 } } },
+    ]),
+    RoomMember.find({ roomId: { $in: roomObjectIds }, isBanned: false })
+      .sort({ lastJoinedAt: -1 })
+      .select('roomId userId')
+      .lean(),
+    orClauses.length === 0
+      ? Promise.resolve([])
+      : QueueItem.find({ $or: orClauses }).select('roomId videoId title').lean(),
+  ]);
+
+  const hostById = new Map(
+    hosts.map((h) => [
+      h._id.toString(),
+      h as { username: string; avatarUrl?: string },
+    ]),
+  );
+
+  const countByRoomId = new Map(
+    countAgg.map((c) => [c._id.toString(), c.count]),
+  );
+
+  const previewUserIdsByRoom = new Map<string, Types.ObjectId[]>();
+  for (const row of memberRows) {
+    const rid = row.roomId.toString();
+    let list = previewUserIdsByRoom.get(rid);
+    if (!list) {
+      list = [];
+      previewUserIdsByRoom.set(rid, list);
+    }
+    if (list.length >= MEMBER_PREVIEW_LIMIT) {
+      continue;
+    }
+    list.push(row.userId);
+  }
+
+  const previewUserIds = [
+    ...new Set(
+      [...previewUserIdsByRoom.values()]
+        .flat()
+        .map((id) => id.toString()),
+    ),
+  ].map((id) => new Types.ObjectId(id));
+
+  const previewUsers =
+    previewUserIds.length === 0
+      ? []
+      : await User.find({ _id: { $in: previewUserIds } })
+          .select('username avatarUrl')
+          .lean();
+
+  const userById = new Map(
+    previewUsers.map((u) => [
+      u._id.toString(),
+      u as { username: string; avatarUrl?: string },
+    ]),
+  );
+
+  return rooms.map((room) => {
+    const base = toRoomDto(room);
+    const host = hostById.get(room.hostId.toString());
+    const memberCount = countByRoomId.get(room._id.toString()) ?? 0;
+    const previewIds = previewUserIdsByRoom.get(room._id.toString()) ?? [];
+
+    const memberPreview: RoomMemberPreviewDto[] = previewIds.map((uid) => {
+      const u = userById.get(uid.toString());
+      return {
+        userId: uid.toString(),
+        username: u?.username ?? 'User',
+        ...(u?.avatarUrl && { avatarUrl: u.avatarUrl }),
+      };
+    });
+
+    let currentVideoTitle: string | undefined;
+    if (room.currentVideoId) {
+      const row = queueItems.find(
+        (q) =>
+          q.roomId.toString() === room._id.toString() &&
+          q.videoId === room.currentVideoId,
+      );
+      if (row) {
+        currentVideoTitle = row.title;
+      }
+    }
+
+    return {
+      ...base,
+      hostUsername: host?.username ?? 'Host',
+      ...(host?.avatarUrl && { hostAvatarUrl: host.avatarUrl }),
+      ...(currentVideoTitle && { currentVideoTitle }),
+      memberCount,
+      memberPreview,
+    };
+  });
+};
 
 const toRoomDto = (room: IRoom): RoomDto => ({
   id: room._id.toString(),
@@ -132,12 +271,12 @@ export const getRoomById = async (
   return toRoomDto(room);
 };
 
-export const listPublicRooms = async (): Promise<RoomDto[]> => {
+export const listPublicRooms = async (): Promise<RoomListItemDto[]> => {
   const rooms = await Room.find({ isPublic: true })
     .sort({ createdAt: -1 })
     .exec();
 
-  return rooms.map(toRoomDto);
+  return enrichRoomsForList(rooms);
 };
 
 export const joinPublicRoom = async (

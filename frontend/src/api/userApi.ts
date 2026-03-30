@@ -1,5 +1,5 @@
 import type { User } from '../types/auth';
-import type { Room } from '../types/room';
+import type { MyRoomListItem } from '../types/room';
 import { httpClient } from './httpClient';
 
 export const userApi = {
@@ -8,7 +8,7 @@ export const userApi = {
   updateProfile: (payload: { username: string }): Promise<User> =>
     httpClient.patch<User>('/api/users/me', payload),
 
-  getMyRooms: (): Promise<{ rooms: Room[] }> =>
-    httpClient.get<{ rooms: Room[] }>('/api/users/me/rooms'),
+  getMyRooms: (): Promise<{ rooms: MyRoomListItem[] }> =>
+    httpClient.get<{ rooms: MyRoomListItem[] }>('/api/users/me/rooms'),
 };
 
