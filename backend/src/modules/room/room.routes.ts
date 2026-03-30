@@ -22,16 +22,16 @@ router.post(
 );
 
 router.get(
+  '/rooms/public',
+  requireAuth,
+  asyncHandler(listPublicRoomsHandler),
+);
+router.get(
   '/rooms/:roomId',
   requireAuth,
   asyncHandler(getRoomHandler),
 );
 
-router.get(
-  '/rooms/public',
-  requireAuth,
-  asyncHandler(listPublicRoomsHandler),
-);
 
 router.post(
   '/rooms/:roomId/join',

@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { StatusCodes } from 'http-status-codes';
 import { Message, type IMessage } from '../../db/models/Message.js';
 import { Room } from '../../db/models/Room.js';
+import { User } from '../../db/models/User.js';
 import {
   RoomMember,
   type IRoomMember,
@@ -17,15 +18,17 @@ export interface MessageDto {
   id: string;
   roomId: string;
   userId?: string;
+  username?: string;
   content: string;
   type: MessageType;
   createdAt: Date;
 }
 
-const toMessageDto = (msg: IMessage): MessageDto => ({
+const toMessageDto = (msg: IMessage, username?: string): MessageDto => ({
   id: msg._id.toString(),
   roomId: msg.roomId.toString(),
-  ...(msg.userId && {userId: msg.userId?.toString()}),
+  ...(msg.userId && { userId: msg.userId.toString() }),
+  ...(username && { username }),
   content: msg.content,
   type: msg.type,
   createdAt: msg.createdAt,
@@ -74,7 +77,9 @@ export const sendMessage = async (
     content: data.content,
   });
 
-  return toMessageDto(msg);
+  const author = await User.findById(userId).select('username').lean().exec();
+
+  return toMessageDto(msg, author?.username);
 };
 
 export const sendSystemMessage = async (
@@ -117,5 +122,31 @@ export const getMessages = async (
     .limit(limit)
     .exec();
 
-  return messages.map(toMessageDto);
+  // Newest-first query + limit gives the latest N; reverse for oldest→newest UI.
+  const messagesChronological = [...messages].reverse();
+
+  const userIdStrings = [
+    ...new Set(
+      messagesChronological
+        .map((m) => m.userId?.toString())
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+
+  let usernameById = new Map<string, string>();
+  if (userIdStrings.length > 0) {
+    const users = await User.find({ _id: { $in: userIdStrings } })
+      .select('username')
+      .lean()
+      .exec();
+    usernameById = new Map(
+      users.map((u) => [u._id.toString(), u.username]),
+    );
+  }
+
+  return messagesChronological.map((m) => {
+    const uid = m.userId?.toString();
+    const username = uid ? usernameById.get(uid) : undefined;
+    return toMessageDto(m, username);
+  });
 };

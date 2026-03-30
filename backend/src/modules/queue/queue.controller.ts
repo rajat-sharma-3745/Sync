@@ -8,6 +8,8 @@ import { getRoomQueue, addToQueue, removeFromQueue, reorderQueue } from './queue
 import { StatusCodes } from 'http-status-codes';
 import { ApiError } from '../../utils/apiError.js';
 import { emitQueueItemAdded, emitQueueItemRemoved, emitQueueUpdated } from '../../sockets/queue.socket.js';
+import { getIo } from '../../sockets/index.js';
+import { upsertPlaybackState } from '../../sockets/playback.socket.js';
 
 export const getQueueHandler = async (
   req: Request,
@@ -34,9 +36,17 @@ export const addToQueueHandler = async (
     throw new ApiError(StatusCodes.UNAUTHORIZED, "Unauthorized");
   }
 
-  const item = await addToQueue(roomId, req.user.userId, body);
+  const addResult = await addToQueue(roomId, req.user.userId, body);
   await emitQueueItemAdded(roomId);
-  created(res, item);
+  if (addResult.playbackChanged && addResult.playbackState) {
+    const io = getIo();
+    const state = upsertPlaybackState(roomId, addResult.playbackState);
+    io.to(roomId).emit('playback:state', {
+      roomId,
+      ...state,
+    });
+  }
+  created(res, addResult.item);
 };
 
 export const removeFromQueueHandler = async (
@@ -53,8 +63,16 @@ export const removeFromQueueHandler = async (
   if (!req.user) {
     throw new ApiError(StatusCodes.UNAUTHORIZED, "Unauthorized");
   }
-  await removeFromQueue(roomId, req.user.userId, itemId);
+  const removalResult = await removeFromQueue(roomId, req.user.userId, itemId);
   await emitQueueItemRemoved(roomId);
+  if (removalResult.playbackChanged && removalResult.playbackState) {
+    const io = getIo();
+    const state = upsertPlaybackState(roomId, removalResult.playbackState);
+    io.to(roomId).emit('playback:state', {
+      roomId,
+      ...state,
+    });
+  }
   ok(res, { success: true });
 };
 

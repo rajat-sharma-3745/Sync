@@ -19,6 +19,27 @@ export interface QueueItemDto {
   createdAt: Date;
 }
 
+export interface QueueAddResult {
+  item: QueueItemDto;
+  playbackChanged: boolean;
+  playbackState?: {
+    videoId: string | null;
+    position: number;
+    isPlaying: boolean;
+    playbackRate: number;
+  };
+}
+
+export interface QueueRemovalResult {
+  playbackChanged: boolean;
+  playbackState?: {
+    videoId: string | null;
+    position: number;
+    isPlaying: boolean;
+    playbackRate: number;
+  };
+}
+
 const toQueueItemDto = (item: IQueueItem): QueueItemDto => ({
   id: item._id.toString(),
   roomId: item.roomId.toString(),
@@ -67,10 +88,18 @@ export const addToQueue = async (
   roomId: string,
   userId: string,
   data: AddToQueueInput,
-): Promise<QueueItemDto> => {
+): Promise<QueueAddResult> => {
   const { room, member } = await ensureRoomAndMember(roomId, userId);
 
   assertCanManageQueue(member, room);
+  const existingItem = await QueueItem.findOne({
+    roomId: room._id,
+    videoId: data.videoId,
+  }).exec();
+
+  if (existingItem) {
+    throw new ApiError(StatusCodes.CONFLICT, "Video already exists in queue");
+  }
 
   const lastItem = await QueueItem.findOne({ roomId: room._id })
     .sort({ position: -1 })
@@ -89,15 +118,43 @@ export const addToQueue = async (
     position: nextPosition,
   });
 
-  return toQueueItemDto(item);
+  const itemDto = toQueueItemDto(item);
+
+  const shouldInitializePlayback = nextPosition === 0 && !room.currentVideoId;
+  if (!shouldInitializePlayback) {
+    return {
+      item: itemDto,
+      playbackChanged: false,
+    };
+  }
+
+  const playbackState = {
+    videoId: item.videoId,
+    position: 0,
+    isPlaying: false,
+    playbackRate: 1,
+  };
+
+  await Room.findByIdAndUpdate(roomId, {
+    currentVideoId: playbackState.videoId,
+    currentTime: playbackState.position,
+    isPlaying: playbackState.isPlaying,
+    playbackRate: playbackState.playbackRate,
+  }).exec();
+
+  return {
+    item: itemDto,
+    playbackChanged: true,
+    playbackState,
+  };
 };
 
 export const removeFromQueue = async (
   roomId: string,
   userId: string,
   itemId: string,
-): Promise<void> => {
-  const { member } = await ensureRoomAndMember(roomId, userId);
+): Promise<QueueRemovalResult> => {
+  const { room, member } = await ensureRoomAndMember(roomId, userId);
 
   assertIsHost(member); // host-only for MVP
 
@@ -122,6 +179,33 @@ export const removeFromQueue = async (
       return queueItem.save();
     }),
   );
+
+  const shouldUpdatePlayback = room.currentVideoId === item.videoId;
+  if (!shouldUpdatePlayback) {
+    return { playbackChanged: false };
+  }
+
+  // Continue from the removed index so removing the current item in the
+  // middle advances to the next item (old n+1), not back to the first item.
+  const nextItem = remainingItems[item.position];
+  const nextPlaybackState = {
+    videoId: nextItem?.videoId ?? null,
+    position: 0,
+    isPlaying: false,
+    playbackRate: 1,
+  };
+
+  await Room.findByIdAndUpdate(roomId, {
+    currentVideoId: nextPlaybackState.videoId,
+    currentTime: nextPlaybackState.position,
+    isPlaying: nextPlaybackState.isPlaying,
+    playbackRate: nextPlaybackState.playbackRate,
+  }).exec();
+
+  return {
+    playbackChanged: true,
+    playbackState: nextPlaybackState,
+  };
 };
 
 export const reorderQueue = async (

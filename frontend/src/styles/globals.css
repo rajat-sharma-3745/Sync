@@ -1,0 +1,44 @@
+:root {
+  --color-bg: #050708;
+  --color-bg-elevated: #050708;
+  --color-surface: #050b10;
+  --color-border-subtle: #1f2933;
+  --color-navbar-bg: #0c1115;
+  --color-navbar-border: #1f2937;
+  --color-primary: #22c55e;
+  --color-primary-soft: rgba(34, 197, 94, 0.12);
+  --color-text: #f9fafb;
+  --color-text-muted: #9ca3af;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.25rem;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+}
+
