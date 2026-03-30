@@ -22,6 +22,7 @@ interface RoomContextValue {
   loadingRoom: boolean;
   joinRoom: (roomId: string) => Promise<void>;
   leaveRoom: () => void;
+  setQueueLock: (queueLocked: boolean) => Promise<void>;
 }
 
 const RoomContext = createContext<RoomContextValue | undefined>(undefined);
@@ -73,6 +74,17 @@ const RoomProvider = ({ children }: PropsWithChildren) => {
     setPresence([]);
   }, [socket]);
 
+  const setQueueLock = useCallback(
+    async (queueLocked: boolean): Promise<void> => {
+      const room = currentRoomRef.current;
+      if (!room) return;
+      const updatedRoom = await roomApi.toggleQueueLock(room.id, queueLocked);
+      setCurrentRoom(updatedRoom);
+      currentRoomRef.current = updatedRoom;
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!socket) return undefined;
 
@@ -110,8 +122,18 @@ const RoomProvider = ({ children }: PropsWithChildren) => {
       loadingRoom,
       joinRoom,
       leaveRoom,
+      setQueueLock,
     }),
-    [currentRoom, queue, messages, presence, loadingRoom, joinRoom, leaveRoom],
+    [
+      currentRoom,
+      queue,
+      messages,
+      presence,
+      loadingRoom,
+      joinRoom,
+      leaveRoom,
+      setQueueLock,
+    ],
   );
 
   return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;

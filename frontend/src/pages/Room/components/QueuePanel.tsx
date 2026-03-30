@@ -44,13 +44,14 @@ async function fetchYoutubeVideoTitle(videoId: string): Promise<string> {
 }
 
 const QueuePanel = () => {
-  const { currentRoom, queue, presence } = useRoom();
+  const { currentRoom, queue, presence, setQueueLock } = useRoom();
   const { user } = useAuth();
   const { pushToast } = useUi();
   const { socket } = useSocket();
   const [input, setInput] = useState('');
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [togglingLock, setTogglingLock] = useState(false);
 
   const isHost = !!currentRoom && !!user && currentRoom.hostId === user.id;
   const canManageQueue = isHost || !currentRoom?.queueLocked;
@@ -115,6 +116,20 @@ const QueuePanel = () => {
     });
   };
 
+  const handleToggleQueueLock = async () => {
+    if (!currentRoom || !isHost) return;
+    setTogglingLock(true);
+    try {
+      await setQueueLock(!currentRoom.queueLocked);
+    } catch (err) {
+      const message =
+        err instanceof HttpError ? err.message : 'Failed to update queue lock';
+      pushToast({ type: 'error', title: 'Error', message });
+    } finally {
+      setTogglingLock(false);
+    }
+  };
+
   if (!currentRoom) return null;
 
   const sortedQueue = [...queue].sort((a, b) => a.position - b.position);
@@ -129,9 +144,25 @@ const QueuePanel = () => {
 
   return (
     <section className="flex flex-col rounded-lg border border-neutral-800 bg-neutral-950/50">
-      <h3 className="border-b border-neutral-800 px-3 py-2 text-sm font-medium text-neutral-300">
-        Queue
-      </h3>
+      <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
+        <h3 className="text-sm font-medium text-neutral-300">Queue</h3>
+        {isHost && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={handleToggleQueueLock}
+            disabled={togglingLock}
+            className="h-7 border border-neutral-600/70 cursor-pointer bg-neutral-900/40 px-2 text-xs font-normal text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-300"
+          >
+            {togglingLock
+              ? 'Updating...'
+              : currentRoom.queueLocked
+                ? 'Unlock queue'
+                : 'Lock queue'}
+          </Button>
+        )}
+      </div>
       {canManageQueue && (
         <form
           onSubmit={handleAdd}
@@ -148,6 +179,7 @@ const QueuePanel = () => {
             type="submit"
             size="sm"
             disabled={adding || !input.trim()}
+            className="cursor-pointer"
           >
             {adding ? 'Adding…' : 'Add'}
           </Button>
