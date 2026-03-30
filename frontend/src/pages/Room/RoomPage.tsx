@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import AppLayout from '../../components/layout/AppLayout';
@@ -13,6 +13,10 @@ const RoomPage = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
   const { currentRoom, loadingRoom, joinRoom, leaveRoom } = useRoom();
+  const [mobilePanel, setMobilePanel] = useState<'queue' | 'chat' | 'members'>(
+    'queue',
+  );
+  const [desktopPanel, setDesktopPanel] = useState<'chat' | 'members'>('chat');
 
   useEffect(() => {
     if (!roomId) return;
@@ -43,15 +47,86 @@ const RoomPage = () => {
     <AppLayout>
       <div className="flex min-h-0 flex-1 flex-col">
         <RoomHeader />
-        <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:flex-row md:p-6">
-          <div className="min-w-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6 lg:flex-row">
+          <div className="flex min-w-0 flex-1 flex-col gap-4">
             <PlayerSection />
+            <div className="hidden lg:block">
+              <QueuePanel />
+            </div>
           </div>
-          <div className="flex w-full flex-col gap-4 md:w-80 md:shrink-0">
-            <QueuePanel />
-            <ChatPanel />
-            <PresencePanel />
+
+          <div className="flex flex-col gap-3 lg:hidden">
+            <div className="grid grid-cols-3 gap-2 rounded-lg border border-neutral-800 bg-neutral-950/50 p-1">
+              <button
+                type="button"
+                onClick={() => setMobilePanel('queue')}
+                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  mobilePanel === 'queue'
+                    ? 'bg-neutral-800 text-neutral-100'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Queue
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobilePanel('chat')}
+                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  mobilePanel === 'chat'
+                    ? 'bg-neutral-800 text-neutral-100'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobilePanel('members')}
+                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  mobilePanel === 'members'
+                    ? 'bg-neutral-800 text-neutral-100'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Members
+              </button>
+            </div>
+
+            {mobilePanel === 'queue' && <QueuePanel />}
+            {mobilePanel === 'chat' && <ChatPanel />}
+            {mobilePanel === 'members' && <PresencePanel />}
           </div>
+
+          <aside className="hidden w-full shrink-0 lg:sticky lg:top-6 lg:flex lg:max-h-[calc(100vh-8rem)] lg:w-96 lg:flex-col lg:gap-3 lg:self-start">
+            <div className="grid grid-cols-2 gap-2 rounded-lg border border-neutral-800 bg-neutral-950/50 p-1">
+              <button
+                type="button"
+                onClick={() => setDesktopPanel('chat')}
+                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  desktopPanel === 'chat'
+                    ? 'bg-neutral-800 text-neutral-100'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => setDesktopPanel('members')}
+                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  desktopPanel === 'members'
+                    ? 'bg-neutral-800 text-neutral-100'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Members
+              </button>
+            </div>
+
+            <div className="min-h-0 overflow-y-auto">
+              {desktopPanel === 'chat' ? <ChatPanel /> : <PresencePanel />}
+            </div>
+          </aside>
         </div>
       </div>
     </AppLayout>
