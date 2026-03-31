@@ -7,6 +7,11 @@ import {
   listPublicRoomsHandler,
   joinPublicRoomHandler,
   joinByInviteHandler,
+  requestJoinByInviteHandler,
+  listPendingJoinRequestsHandler,
+  approveJoinRequestHandler,
+  denyJoinRequestHandler,
+  cancelJoinRequestHandler,
   updateRoomHandler,
   toggleQueueLockHandler,
   kickMemberHandler,
@@ -43,6 +48,31 @@ router.post(
   '/rooms/join/:inviteCode',
   requireAuth,
   asyncHandler(joinByInviteHandler),
+);
+router.post(
+  '/rooms/join/:inviteCode/request',
+  requireAuth,
+  asyncHandler(requestJoinByInviteHandler),
+);
+router.get(
+  '/rooms/:roomId/join-requests',
+  requireAuth,
+  asyncHandler(listPendingJoinRequestsHandler),
+);
+router.post(
+  '/rooms/:roomId/join-requests/:requestId/approve',
+  requireAuth,
+  asyncHandler(approveJoinRequestHandler),
+);
+router.post(
+  '/rooms/:roomId/join-requests/:requestId/deny',
+  requireAuth,
+  asyncHandler(denyJoinRequestHandler),
+);
+router.post(
+  '/rooms/:roomId/join-requests/:requestId/cancel',
+  requireAuth,
+  asyncHandler(cancelJoinRequestHandler),
 );
 
 router.patch(

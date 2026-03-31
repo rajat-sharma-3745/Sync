@@ -108,6 +108,10 @@ export const initSocketServer = (httpServer: HttpServer): Server | void => {
       username: user?.username,
     });
 
+    if (user?.userId) {
+      void socket.join(`user:${user.userId}`);
+    }
+
     registerRoomSocketHandlers(io, socket);
     registerPlaybackSocketHandlers(io, socket);
     registerChatSocketHandlers(io, socket);

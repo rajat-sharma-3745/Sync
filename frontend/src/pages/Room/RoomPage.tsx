@@ -8,15 +8,26 @@ import QueuePanel from './components/QueuePanel';
 import ChatPanel from './components/ChatPanel';
 import PresencePanel from './components/PresencePanel';
 import { useRoom } from '../../hooks/useRoom';
+import { useAuth } from '../../hooks/useAuth';
+import { useSocket } from '../../hooks/useSocket';
+import { roomApi } from '../../api/roomApi';
+import type { RoomJoinRequest } from '../../types/room';
+import Button from '../../components/ui/Button';
+import { useUi } from '../../hooks/useUi';
 
 const RoomPage = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
   const { currentRoom, loadingRoom, joinRoom, leaveRoom } = useRoom();
+  const { user } = useAuth();
+  const { socket } = useSocket();
+  const { pushToast } = useUi();
   const [mobilePanel, setMobilePanel] = useState<'queue' | 'chat' | 'members'>(
     'queue',
   );
   const [desktopPanel, setDesktopPanel] = useState<'chat' | 'members'>('chat');
+  const [joinRequests, setJoinRequests] = useState<RoomJoinRequest[]>([]);
+  const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!roomId) return;
@@ -27,6 +38,69 @@ const RoomPage = () => {
       leaveRoom();
     };
   }, [roomId, joinRoom, leaveRoom, navigate]);
+
+  useEffect(() => {
+    if (!currentRoom || !user || currentRoom.hostId !== user.id) {
+      setJoinRequests([]);
+      return;
+    }
+
+    roomApi
+      .listPendingJoinRequests(currentRoom.id)
+      .then(({ requests }) => {
+        setJoinRequests(requests);
+      })
+      .catch(() => {
+        setJoinRequests([]);
+      });
+  }, [currentRoom, user]);
+
+  useEffect(() => {
+    if (!socket || !currentRoom || !user || currentRoom.hostId !== user.id) {
+      return undefined;
+    }
+
+    const handleJoinRequested = (request: RoomJoinRequest) => {
+      if (request.roomId !== currentRoom.id) return;
+      setJoinRequests((prev) =>
+        prev.some((r) => r.id === request.id) ? prev : [request, ...prev],
+      );
+    };
+
+    socket.on('room:join-requested', handleJoinRequested);
+    return () => {
+      socket.off('room:join-requested', handleJoinRequested);
+    };
+  }, [socket, currentRoom, user]);
+
+  const handleReviewJoinRequest = async (
+    requestId: string,
+    action: 'approve' | 'deny',
+  ) => {
+    if (!currentRoom) return;
+    setReviewingRequestId(requestId);
+    try {
+      if (action === 'approve') {
+        await roomApi.approveJoinRequest(currentRoom.id, requestId);
+      } else {
+        await roomApi.denyJoinRequest(currentRoom.id, requestId);
+      }
+      setJoinRequests((prev) => prev.filter((request) => request.id !== requestId));
+      pushToast({
+        type: 'success',
+        title: action === 'approve' ? 'Request approved' : 'Request denied',
+        message: 'Join request updated.',
+      });
+    } catch {
+      pushToast({
+        type: 'error',
+        title: 'Request update failed',
+        message: 'Could not update this join request.',
+      });
+    } finally {
+      setReviewingRequestId(null);
+    }
+  };
 
   if (!roomId) {
     navigate('/rooms');
@@ -47,6 +121,41 @@ const RoomPage = () => {
     <AppLayout>
       <div className="flex min-h-0 flex-1 flex-col">
         <RoomHeader />
+        {currentRoom.hostId === user?.id && joinRequests.length > 0 && (
+          <div className="mx-4 mt-4 rounded-xl border border-amber-600/40 bg-amber-500/10 p-3 md:mx-6">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-medium text-amber-200">Join requests</p>
+              <span className="text-xs text-amber-300">{joinRequests.length} pending</span>
+            </div>
+            <div className="space-y-2">
+              {joinRequests.map((request) => (
+                <div
+                  key={request.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-950/70 px-3 py-2"
+                >
+                  <p className="text-sm text-neutral-100">{request.requesterUsername}</p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => handleReviewJoinRequest(request.id, 'approve')}
+                      disabled={reviewingRequestId === request.id}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleReviewJoinRequest(request.id, 'deny')}
+                      disabled={reviewingRequestId === request.id}
+                    >
+                      Deny
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6 lg:flex-row">
           <div className="flex min-w-0 flex-1 flex-col gap-4">
             <PlayerSection />

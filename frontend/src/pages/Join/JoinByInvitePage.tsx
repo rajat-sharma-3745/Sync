@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import AppLayout from '../../components/layout/AppLayout';
@@ -9,6 +9,8 @@ import Input from '../../components/ui/Input';
 import { roomApi } from '../../api/roomApi';
 import { useUi } from '../../hooks/useUi';
 import { HttpError } from '../../api/httpClient';
+import { useSocket } from '../../hooks/useSocket';
+import type { Room, RoomJoinRequest } from '../../types/room';
 
 /** Extract invite code from pasted value: full join URL or plain code. */
 function parseInviteCode(input: string): string {
@@ -22,11 +24,54 @@ const JoinByInvitePage = () => {
   const { inviteCode: inviteCodeParam } = useParams<{ inviteCode?: string }>();
   const navigate = useNavigate();
   const { pushToast } = useUi();
+  const { socket } = useSocket();
   const [code, setCode] = useState(inviteCodeParam?.trim() ?? '');
   const [joining, setJoining] = useState(false);
   const [autoJoinAttempted, setAutoJoinAttempted] = useState(false);
+  const [pendingRequest, setPendingRequest] = useState<RoomJoinRequest | null>(null);
+  const [reviewingRequest, setReviewingRequest] = useState(false);
+  const [nowMs, setNowMs] = useState(Date.now());
 
   const parsedCode = parseInviteCode(code);
+
+  const submitJoinIntent = useCallback(async (inviteCode: string): Promise<void> => {
+    try {
+      const request = await roomApi.requestJoinByInviteCode(inviteCode);
+      setPendingRequest(request);
+      pushToast({
+        type: 'success',
+        title: 'Request sent',
+        message: 'Waiting for host approval.',
+      });
+      return;
+    } catch (err) {
+      if (
+        err instanceof HttpError &&
+        (err.status === 400 || err.status === 409)
+      ) {
+        const room = await roomApi.joinByInviteCode(inviteCode);
+        pushToast({ type: 'success', title: 'Joined', message: `You joined "${room.name}".` });
+        navigate(`/rooms/${room.id}`);
+        return;
+      }
+      throw err;
+    }
+  }, [navigate, pushToast]);
+
+  const pendingExpiresAtMs = pendingRequest?.expiresAt
+    ? Date.parse(pendingRequest.expiresAt)
+    : undefined;
+  const pendingExpired = Boolean(
+    pendingExpiresAtMs && Number.isFinite(pendingExpiresAtMs) && pendingExpiresAtMs <= nowMs,
+  );
+
+  useEffect(() => {
+    if (!pendingRequest) return undefined;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [pendingRequest]);
 
   useEffect(() => {
     if (!inviteCodeParam?.trim() || autoJoinAttempted || joining) return;
@@ -34,12 +79,7 @@ const JoinByInvitePage = () => {
     if (!codeFromUrl) return;
     setAutoJoinAttempted(true);
     setJoining(true);
-    roomApi
-      .joinByInviteCode(codeFromUrl)
-      .then((room) => {
-        pushToast({ type: 'success', title: 'Joined', message: `You joined "${room.name}".` });
-        navigate(`/rooms/${room.id}`);
-      })
+    submitJoinIntent(codeFromUrl)
       .catch((err) => {
         const message = err instanceof HttpError ? err.message : 'Could not join with this invite code';
         pushToast({ type: 'error', title: 'Join failed', message });
@@ -48,7 +88,59 @@ const JoinByInvitePage = () => {
       .finally(() => {
         setJoining(false);
       });
-  }, [inviteCodeParam, autoJoinAttempted, joining, navigate, pushToast]);
+  }, [inviteCodeParam, autoJoinAttempted, joining, pushToast, submitJoinIntent]);
+
+  useEffect(() => {
+    if (!socket) return undefined;
+
+    const handleApproved = (payload: { room?: Room }) => {
+      if (!pendingRequest || !payload.room) return;
+      pushToast({
+        type: 'success',
+        title: 'Request approved',
+        message: `You can now join "${payload.room.name}".`,
+      });
+      setPendingRequest(null);
+      navigate(`/rooms/${payload.room.id}`);
+    };
+
+    const handleDenied = () => {
+      if (!pendingRequest) return;
+      setPendingRequest(null);
+      pushToast({
+        type: 'error',
+        title: 'Request denied',
+        message: 'The host denied your join request.',
+      });
+    };
+
+    socket.on('room:join-approved', handleApproved);
+    socket.on('room:join-denied', handleDenied);
+
+    return () => {
+      socket.off('room:join-approved', handleApproved);
+      socket.off('room:join-denied', handleDenied);
+    };
+  }, [socket, pendingRequest, navigate, pushToast]);
+
+  const handleCancelRequest = async () => {
+    if (!pendingRequest) return;
+    setReviewingRequest(true);
+    try {
+      await roomApi.cancelJoinRequest(pendingRequest.roomId, pendingRequest.id);
+      setPendingRequest(null);
+      pushToast({
+        type: 'success',
+        title: 'Request cancelled',
+        message: 'Your join request has been cancelled.',
+      });
+    } catch (err) {
+      const message = err instanceof HttpError ? err.message : 'Could not cancel join request';
+      pushToast({ type: 'error', title: 'Cancel failed', message });
+    } finally {
+      setReviewingRequest(false);
+    }
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -59,9 +151,7 @@ const JoinByInvitePage = () => {
     }
     setJoining(true);
     try {
-      const room = await roomApi.joinByInviteCode(toJoin);
-      pushToast({ type: 'success', title: 'Joined', message: `You joined "${room.name}".` });
-      navigate(`/rooms/${room.id}`);
+      await submitJoinIntent(toJoin);
     } catch (err) {
       const message = err instanceof HttpError ? err.message : 'Could not join with this invite code';
       pushToast({ type: 'error', title: 'Join failed', message });
@@ -108,13 +198,39 @@ const JoinByInvitePage = () => {
                 />
               </div>
               <div className="flex gap-3">
-                <Button type="submit" disabled={joining || !parsedCode}>
-                  {joining ? 'Joining…' : 'Join room'}
+                <Button type="submit" disabled={joining || !parsedCode || (Boolean(pendingRequest) && !pendingExpired)}>
+                  {joining
+                    ? 'Sending…'
+                    : pendingRequest && !pendingExpired
+                      ? 'Awaiting approval'
+                      : 'Request to join'}
                 </Button>
                 <Button asChild variant="secondary" disabled={joining}>
                   <Link to="/rooms">Back to rooms</Link>
                 </Button>
               </div>
+              {pendingRequest && !pendingExpired && (
+                <>
+                  <p className="text-sm text-amber-300">
+                    Join request sent. Keep this page open while the host reviews.
+                  </p>
+                  <div className="flex gap-3">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleCancelRequest}
+                      disabled={reviewingRequest}
+                    >
+                      {reviewingRequest ? 'Cancelling…' : 'Cancel request'}
+                    </Button>
+                  </div>
+                </>
+              )}
+              {pendingRequest && pendingExpired && (
+                <p className="text-sm text-amber-300">
+                  Your last request expired. Click "Request to join" to send a new one.
+                </p>
+              )}
             </form>
           </Card>
         </div>

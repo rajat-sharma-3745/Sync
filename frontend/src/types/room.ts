@@ -35,6 +35,17 @@ export interface MyRoomListItem extends RoomListItem {
   role: RoomMemberRole;
 }
 
+export interface RoomJoinRequest {
+  id: string;
+  roomId: string;
+  requesterUserId: string;
+  requesterUsername: string;
+  requesterAvatarUrl?: string;
+  status: 'PENDING' | 'APPROVED' | 'DENIED' | 'EXPIRED' | 'CANCELLED';
+  createdAt: string;
+  expiresAt?: string;
+}
+
 export interface QueueItem {
   id: string;
   roomId: string;

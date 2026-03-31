@@ -13,6 +13,7 @@ import { roomApi } from '../api/roomApi';
 import { queueApi } from '../api/queueApi';
 import { chatApi } from '../api/chatApi';
 import { useSocket } from '../hooks/useSocket';
+import { HttpError } from '../api/httpClient';
 
 interface RoomContextValue {
   currentRoom: Room | null;
@@ -42,7 +43,17 @@ const RoomProvider = ({ children }: PropsWithChildren) => {
       if (currentRoomRef.current?.id === roomId) return;
       setLoadingRoom(true);
       try {
-        const room = await roomApi.joinRoom(roomId);
+        let room: Room;
+        try {
+          room = await roomApi.joinRoom(roomId);
+        } catch (error) {
+          // Private room access for existing members/host goes through getRoom.
+          if (error instanceof HttpError && error.status === 404) {
+            room = await roomApi.getRoom(roomId);
+          } else {
+            throw error;
+          }
+        }
         setCurrentRoom(room);
         currentRoomRef.current = room;
         const [{ items: queueItems }, { messages: initialMessages }] =

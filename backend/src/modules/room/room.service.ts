@@ -8,6 +8,10 @@ import {
 } from '../../db/models/RoomMember.js';
 import { User } from '../../db/models/User.js';
 import { QueueItem } from '../../db/models/QueueItem.js';
+import {
+  RoomJoinRequest,
+  type RoomJoinRequestStatus,
+} from '../../db/models/RoomJoinRequest.js';
 import { ApiError } from '../../utils/apiError.js';
 import { RoomMemberRole } from '../../types/common.js';
 import { assertIsHost } from '../../utils/permissions.js';
@@ -50,7 +54,19 @@ export interface RoomListItemDto extends RoomDto {
   memberPreview: RoomMemberPreviewDto[];
 }
 
+export interface RoomJoinRequestDto {
+  id: string;
+  roomId: string;
+  requesterUserId: string;
+  requesterUsername: string;
+  requesterAvatarUrl?: string;
+  status: RoomJoinRequestStatus;
+  createdAt: Date;
+  expiresAt?: Date;
+}
+
 const MEMBER_PREVIEW_LIMIT = 4;
+const JOIN_REQUEST_TTL_MS = 2 * 60 * 1000;
 
 export const enrichRoomsForList = async (
   rooms: IRoom[],
@@ -189,6 +205,30 @@ const toRoomDto = (room: IRoom): RoomDto => ({
   updatedAt: room.updatedAt,
 });
 
+const toRoomJoinRequestDto = (
+  row: {
+    _id: Types.ObjectId;
+    roomId: Types.ObjectId;
+    requesterUserId: Types.ObjectId;
+    status: RoomJoinRequestStatus;
+    createdAt: Date;
+    expiresAt?: Date;
+  },
+  requester: { username: string; avatarUrl?: string },
+): RoomJoinRequestDto => ({
+  id: row._id.toString(),
+  roomId: row.roomId.toString(),
+  requesterUserId: row.requesterUserId.toString(),
+  requesterUsername: requester.username,
+  ...(requester.avatarUrl && { requesterAvatarUrl: requester.avatarUrl }),
+  status: row.status,
+  createdAt: row.createdAt,
+  ...(row.expiresAt && { expiresAt: row.expiresAt }),
+});
+
+const hasExpired = (expiresAt?: Date): boolean =>
+  Boolean(expiresAt && expiresAt.getTime() <= Date.now());
+
 const ensureMember = async (
   roomId: string,
   userId: string,
@@ -326,6 +366,13 @@ export const joinByInviteCode = async (
     throw new ApiError(StatusCodes.FORBIDDEN, 'You are banned from this room');
   }
 
+  if (!room.isPublic && !member) {
+    throw new ApiError(
+      StatusCodes.FORBIDDEN,
+      'Host approval is required for this private room',
+    );
+  }
+
   if (!member) {
     member = await RoomMember.create({
       roomId: room._id,
@@ -336,6 +383,269 @@ export const joinByInviteCode = async (
   }
 
   return { ...toRoomDto(room), role: member.role };
+};
+
+export const requestJoinByInviteCode = async (
+  inviteCode: string,
+  userId: string,
+): Promise<RoomJoinRequestDto & { hostUserId: string }> => {
+  const room = await Room.findOne({ inviteCode }).exec();
+  if (!room) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Room not found');
+  }
+
+  if (room.isPublic) {
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      'This room is public. Join directly instead.',
+    );
+  }
+
+  const existingMember = await RoomMember.findOne({
+    roomId: room._id,
+    userId,
+  }).exec();
+
+  if (existingMember?.isBanned) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'You are banned from this room');
+  }
+
+  if (existingMember && !existingMember.isBanned) {
+    throw new ApiError(StatusCodes.CONFLICT, 'You are already a member of this room');
+  }
+
+  const existingPending = await RoomJoinRequest.findOne({
+    roomId: room._id,
+    requesterUserId: userId,
+    status: 'PENDING',
+  }).exec();
+
+  if (existingPending) {
+    if (hasExpired(existingPending.expiresAt)) {
+      existingPending.status = 'EXPIRED';
+      existingPending.reviewedAt = new Date();
+      await existingPending.save();
+    } else {
+      const requester = await User.findById(userId).select('username avatarUrl').lean();
+      if (!requester) {
+        throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+      }
+      return {
+        ...toRoomJoinRequestDto(existingPending, {
+          username: requester.username,
+          ...(requester.avatarUrl && { avatarUrl: requester.avatarUrl }),
+        }),
+        hostUserId: room.hostId.toString(),
+      };
+    }
+  }
+
+  const created = await RoomJoinRequest.create({
+    roomId: room._id,
+    requesterUserId: userId,
+    status: 'PENDING',
+    expiresAt: new Date(Date.now() + JOIN_REQUEST_TTL_MS),
+  });
+
+  const requester = await User.findById(userId).select('username avatarUrl').lean();
+  if (!requester) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+  }
+
+  return {
+    ...toRoomJoinRequestDto(created, {
+      username: requester.username,
+      ...(requester.avatarUrl && { avatarUrl: requester.avatarUrl }),
+    }),
+    hostUserId: room.hostId.toString(),
+  };
+};
+
+export const cancelJoinRequest = async (
+  roomId: string,
+  requestId: string,
+  requesterUserId: string,
+): Promise<void> => {
+  if (!Types.ObjectId.isValid(roomId) || !Types.ObjectId.isValid(requestId)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid id');
+  }
+
+  const request = await RoomJoinRequest.findOne({
+    _id: requestId,
+    roomId,
+    requesterUserId,
+  }).exec();
+
+  if (!request) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Join request not found');
+  }
+
+  if (request.status !== 'PENDING') {
+    throw new ApiError(StatusCodes.CONFLICT, 'Join request already handled');
+  }
+  if (hasExpired(request.expiresAt)) {
+    request.status = 'EXPIRED';
+    request.reviewedAt = new Date();
+    await request.save();
+    throw new ApiError(StatusCodes.CONFLICT, 'Join request already expired');
+  }
+
+  request.status = 'CANCELLED';
+  request.cancelledAt = new Date();
+  await request.save();
+};
+
+export const listPendingJoinRequests = async (
+  roomId: string,
+  hostUserId: string,
+): Promise<RoomJoinRequestDto[]> => {
+  if (!Types.ObjectId.isValid(roomId)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid room id');
+  }
+
+  const room = await Room.findById(roomId).exec();
+  if (!room) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Room not found');
+  }
+  if (room.hostId.toString() !== hostUserId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Only host can review join requests');
+  }
+
+  const now = new Date();
+
+  await RoomJoinRequest.updateMany(
+    {
+      roomId: room._id,
+      status: 'PENDING',
+      expiresAt: { $lte: now },
+    },
+    {
+      $set: { status: 'EXPIRED', reviewedAt: now },
+    },
+  ).exec();
+
+  const pending = await RoomJoinRequest.find({
+    roomId: room._id,
+    status: 'PENDING',
+    $or: [{ expiresAt: { $gt: now } }, { expiresAt: { $exists: false } }],
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  if (pending.length === 0) return [];
+
+  const userIds = [
+    ...new Set(pending.map((row) => row.requesterUserId.toString())),
+  ].map((id) => new Types.ObjectId(id));
+
+  const requesters = await User.find({ _id: { $in: userIds } })
+    .select('username avatarUrl')
+    .lean();
+  const requesterById = new Map(
+    requesters.map((u) => [
+      u._id.toString(),
+      { username: u.username, ...(u.avatarUrl && { avatarUrl: u.avatarUrl }) },
+    ]),
+  );
+
+  return pending.map((row) =>
+    toRoomJoinRequestDto(row, requesterById.get(row.requesterUserId.toString()) ?? { username: 'User' }),
+  );
+};
+
+export const approveJoinRequest = async (
+  roomId: string,
+  requestId: string,
+  hostUserId: string,
+): Promise<{ room: RoomDto; requesterUserId: string }> => {
+  if (!Types.ObjectId.isValid(roomId) || !Types.ObjectId.isValid(requestId)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid id');
+  }
+
+  const room = await Room.findById(roomId).exec();
+  if (!room) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Room not found');
+  }
+  if (room.hostId.toString() !== hostUserId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Only host can approve join requests');
+  }
+
+  const request = await RoomJoinRequest.findOne({
+    _id: requestId,
+    roomId: room._id,
+  }).exec();
+  if (!request) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Join request not found');
+  }
+  if (request.status !== 'PENDING') {
+    throw new ApiError(StatusCodes.CONFLICT, 'Join request already handled');
+  }
+  if (hasExpired(request.expiresAt)) {
+    request.status = 'EXPIRED';
+    request.reviewedAt = new Date();
+    await request.save();
+    throw new ApiError(StatusCodes.CONFLICT, 'Join request already expired');
+  }
+
+  const member = await RoomMember.findOne({
+    roomId: room._id,
+    userId: request.requesterUserId,
+  }).exec();
+  if (member?.isBanned) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'User is banned from this room');
+  }
+
+  if (!member) {
+    await RoomMember.create({
+      roomId: room._id,
+      userId: request.requesterUserId,
+      role: RoomMemberRole.MEMBER,
+      isBanned: false,
+    });
+  }
+
+  request.status = 'APPROVED';
+  request.reviewedByUserId = new Types.ObjectId(hostUserId);
+  request.reviewedAt = new Date();
+  await request.save();
+
+  return { room: toRoomDto(room), requesterUserId: request.requesterUserId.toString() };
+};
+
+export const denyJoinRequest = async (
+  roomId: string,
+  requestId: string,
+  hostUserId: string,
+): Promise<{ requesterUserId: string }> => {
+  if (!Types.ObjectId.isValid(roomId) || !Types.ObjectId.isValid(requestId)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid id');
+  }
+
+  const room = await Room.findById(roomId).exec();
+  if (!room) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Room not found');
+  }
+  if (room.hostId.toString() !== hostUserId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Only host can deny join requests');
+  }
+
+  const request = await RoomJoinRequest.findOne({
+    _id: requestId,
+    roomId: room._id,
+  }).exec();
+  if (!request) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Join request not found');
+  }
+  if (request.status !== 'PENDING') {
+    throw new ApiError(StatusCodes.CONFLICT, 'Join request already handled');
+  }
+
+  request.status = 'DENIED';
+  request.reviewedByUserId = new Types.ObjectId(hostUserId);
+  request.reviewedAt = new Date();
+  await request.save();
+
+  return { requesterUserId: request.requesterUserId.toString() };
 };
 
 export const updateRoom = async (
