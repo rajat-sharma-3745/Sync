@@ -7,13 +7,20 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import type { Message, PresenceMember, QueueItem, Room } from '../types/room';
 import { roomApi } from '../api/roomApi';
 import { queueApi } from '../api/queueApi';
 import { chatApi } from '../api/chatApi';
 import { useSocket } from '../hooks/useSocket';
+import { useUi } from '../hooks/useUi';
 import { HttpError } from '../api/httpClient';
+
+interface RoomRemovedPayload {
+  roomId: string;
+  reason: 'kick' | 'ban';
+}
 
 interface RoomContextValue {
   currentRoom: Room | null;
@@ -30,6 +37,8 @@ const RoomContext = createContext<RoomContextValue | undefined>(undefined);
 
 const RoomProvider = ({ children }: PropsWithChildren) => {
   const { socket } = useSocket();
+  const navigate = useNavigate();
+  const { pushToast } = useUi();
 
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
   const currentRoomRef = useRef<Room | null>(null);
@@ -113,16 +122,34 @@ const RoomProvider = ({ children }: PropsWithChildren) => {
       );
     };
 
+    const handleRemovedFromRoom = (payload: RoomRemovedPayload) => {
+      if (!payload?.roomId || payload.roomId !== currentRoomRef.current?.id) {
+        return;
+      }
+      leaveRoom();
+      void navigate('/rooms', { replace: true });
+      pushToast({
+        type: 'info',
+        title: payload.reason === 'ban' ? 'Banned from room' : 'Removed from room',
+        message:
+          payload.reason === 'ban'
+            ? 'You can no longer join this room.'
+            : 'The host removed you from this room.',
+      });
+    };
+
     socket.on('room:presence', handlePresence);
     socket.on('queue:updated', handleQueueUpdated);
     socket.on('chat:message', handleMessage);
+    socket.on('room:removed', handleRemovedFromRoom);
 
     return () => {
       socket.off('room:presence', handlePresence);
       socket.off('queue:updated', handleQueueUpdated);
       socket.off('chat:message', handleMessage);
+      socket.off('room:removed', handleRemovedFromRoom);
     };
-  }, [socket]);
+  }, [socket, leaveRoom, navigate, pushToast]);
 
   const value = useMemo<RoomContextValue>(
     () => ({

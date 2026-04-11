@@ -47,10 +47,10 @@ const DashboardLayout = ({ children }: PropsWithChildren) => {
             <span className="text-base" aria-hidden>◉</span>
             Rooms
           </NavLink>
-          <span className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-neutral-500">
+          {/* <span className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-neutral-500">
             <span className="text-base" aria-hidden>◇</span>
             Notifications <span className="text-xs">(soon)</span>
-          </span>
+          </span> */}
         </nav>
       </aside>
 

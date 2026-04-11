@@ -253,6 +253,10 @@ export const kickMemberHandler = async (
   await kickMember(roomId, req.user.userId, body.userId);
   const io = getIo();
   removeUserFromRoomPresence(io, roomId, body.userId);
+  io.to(`user:${body.userId}`).emit('room:removed', {
+    roomId,
+    reason: 'kick' as const,
+  });
 
   ok(res, { success: true });
 };
@@ -274,6 +278,10 @@ export const banMemberHandler = async (
   await banMember(roomId, req.user.userId, body.userId);
   const io = getIo();
   removeUserFromRoomPresence(io, roomId, body.userId);
+  io.to(`user:${body.userId}`).emit('room:removed', {
+    roomId,
+    reason: 'ban' as const,
+  });
 
   ok(res, { success: true });
 };
