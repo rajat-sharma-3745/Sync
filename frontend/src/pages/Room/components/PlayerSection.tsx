@@ -31,7 +31,43 @@ interface PlaybackPositionMessage {
   position?: number;
 }
 
+interface PlaybackPauseMessage extends PlaybackPositionMessage {
+  triggeredBy?: { userId: string; username: string };
+}
+
 type PresenceStatus = 'synced' | 'behind' | 'buffering' | 'away';
+
+const playbackDebugEnabled = (): boolean =>
+  import.meta.env.DEV ||
+  import.meta.env.VITE_DEBUG_PLAYBACK === '1' ||
+  import.meta.env.VITE_DEBUG_PLAYBACK === 'true';
+
+function playbackDebugLog(
+  message: string,
+  data?: Record<string, unknown>,
+): void {
+  if (!playbackDebugEnabled()) return;
+  const context =
+    typeof navigator !== 'undefined'
+      ? {
+          uaMobile: /Mobile|Android|iPhone|iPad/i.test(navigator.userAgent),
+          visibility:
+            typeof document !== 'undefined'
+              ? document.visibilityState
+              : undefined,
+        }
+      : {};
+  console.info(`[playback] ${message}`, { ...context, ...data });
+}
+
+function youtubeStateName(data: number): string {
+  const YT = (window as unknown as { YT?: { PlayerState?: Record<string, number> } })
+    .YT?.PlayerState;
+  if (!YT) return String(data);
+  const entries = Object.entries(YT) as [string, number][];
+  const match = entries.find(([, value]) => value === data);
+  return match?.[0] ?? String(data);
+}
 
 const PlayerSection = () => {
   const { currentRoom, queue, presence } = useRoom();
@@ -84,6 +120,7 @@ const PlayerSection = () => {
 
     const handleState = (payload: PlaybackStateMessage) => {
       if (payload.roomId !== roomId) return;
+      const prevPlaying = playbackRef.current.isPlaying;
       const nextState: PlaybackState = {
         videoId:
           Object.prototype.hasOwnProperty.call(payload, 'videoId')
@@ -93,6 +130,12 @@ const PlayerSection = () => {
         isPlaying: payload.isPlaying ?? playbackRef.current.isPlaying,
         playbackRate: payload.playbackRate ?? playbackRef.current.playbackRate,
       };
+      playbackDebugLog('socket:playback:state', {
+        payload,
+        prevPlaying,
+        nextPlaying: nextState.isPlaying,
+        isPlayingChanged: prevPlaying !== nextState.isPlaying,
+      });
       playbackAnchorRef.current = {
         ...nextState,
         updatedAt: Date.now(),
@@ -110,6 +153,7 @@ const PlayerSection = () => {
 
     const handlePlay = (payload: PlaybackPlayMessage) => {
       if (payload.roomId !== roomId) return;
+      playbackDebugLog('socket:playback:play', { payload });
       playbackAnchorRef.current = {
         videoId: payload.videoId ?? playbackRef.current.videoId,
         position: payload.position ?? playbackRef.current.position,
@@ -125,8 +169,12 @@ const PlayerSection = () => {
       }));
     };
 
-    const handlePause = (payload: PlaybackPositionMessage) => {
+    const handlePause = (payload: PlaybackPauseMessage) => {
       if (payload.roomId !== roomId) return;
+      playbackDebugLog('socket:playback:pause → applying room pause', {
+        payload,
+        triggeredBy: payload.triggeredBy,
+      });
       playbackAnchorRef.current = {
         ...playbackRef.current,
         position: payload.position ?? playbackRef.current.position,
@@ -161,6 +209,7 @@ const PlayerSection = () => {
       });
     };
 
+    playbackDebugLog('emit playback:state-request', { roomId });
     socket.emit('playback:state-request', { roomId });
     socket.on('playback:state', handleState);
     socket.on('playback:play', handlePlay);
@@ -239,10 +288,21 @@ const PlayerSection = () => {
           },
           onStateChange: (event: any) => {
             if (!socket || !roomId) return;
-            if (Date.now() < suppressPlayerStateUntilRef.current) return;
-
             const playerState = (window as any).YT?.PlayerState;
             if (!playerState) return;
+
+            const now = Date.now();
+            const suppressUntil = suppressPlayerStateUntilRef.current;
+            if (now < suppressUntil) {
+              if (event.data === playerState.PAUSED) {
+                playbackDebugLog('yt:onStateChange PAUSED ignored (suppress)', {
+                  state: youtubeStateName(event.data),
+                  suppressMsLeft: suppressUntil - now,
+                  roomThinksPlaying: playbackRef.current.isPlaying,
+                });
+              }
+              return;
+            }
 
             if (event.data === playerState.PLAYING) {
               // Only emit if the room thinks we're not playing yet.
@@ -252,7 +312,16 @@ const PlayerSection = () => {
               const videoId = displayVideoIdRef.current;
               if (!videoId) return;
               const position = getEventPosition(event.target);
-              if (shouldSkipDuplicateEmit('play', position)) return;
+              if (shouldSkipDuplicateEmit('play', position)) {
+                playbackDebugLog('yt:PLAYING emit skipped (duplicate guard)', {
+                  position,
+                });
+                return;
+              }
+              playbackDebugLog('yt:PLAYING → emit playback:play', {
+                videoId,
+                position,
+              });
               socket.emit('playback:play', {
                 roomId,
                 videoId,
@@ -260,9 +329,23 @@ const PlayerSection = () => {
               });
             } else if (event.data === playerState.PAUSED) {
               // Only emit if the room thinks we're playing.
-              if (!playbackRef.current.isPlaying) return;
+              if (!playbackRef.current.isPlaying) {
+                playbackDebugLog('yt:PAUSED (room already paused, no emit)', {
+                  position: getEventPosition(event.target),
+                });
+                return;
+              }
               const position = getEventPosition(event.target);
-              if (shouldSkipDuplicateEmit('pause', position)) return;
+              if (shouldSkipDuplicateEmit('pause', position)) {
+                playbackDebugLog('yt:PAUSED emit skipped (duplicate guard)', {
+                  position,
+                });
+                return;
+              }
+              playbackDebugLog('yt:PAUSED → emit playback:pause', {
+                position,
+                roomThinksPlaying: playbackRef.current.isPlaying,
+              });
               socket.emit('playback:pause', { roomId, position });
             } else if (event.data === playerState.ENDED) {
               const videoId = displayVideoIdRef.current;
@@ -315,11 +398,20 @@ const PlayerSection = () => {
     if (playback.isPlaying && !isSoloRoom) {
       if (typeof player.playVideo === 'function') {
         suppressPlayerStateUntilRef.current = Date.now() + 300;
+        playbackDebugLog('player sync: playVideo()', {
+          isSoloRoom,
+          isPlaying: playback.isPlaying,
+        });
         player.playVideo();
       }
     } else {
       if (typeof player.pauseVideo === 'function') {
         suppressPlayerStateUntilRef.current = Date.now() + 300;
+        playbackDebugLog('player sync: pauseVideo()', {
+          isSoloRoom,
+          isPlaying: playback.isPlaying,
+          reason: !playback.isPlaying ? 'room paused' : 'solo room',
+        });
         player.pauseVideo();
       }
     }

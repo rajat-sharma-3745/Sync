@@ -15,6 +15,8 @@ const envSchema = z.object({
   MONGODB_DB_NAME: z.string().optional(),
   ACCESS_TOKEN_SECRET: z.string().min(1, 'ACCESS_TOKEN_SECRET is required'),
   ACCESS_TOKEN_EXPIRES_IN: z.string().default('15m').transform(val => val as StringValue),
+  /** Set to "1" or "true" to log playback socket events (pause/play, etc.). */
+  DEBUG_PLAYBACK: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -27,6 +29,9 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
+const truthyEnv = (value: string | undefined): boolean =>
+  value === '1' || value === 'true';
+
 export const ENV = {
   NODE_ENV: env.NODE_ENV,
   PORT: env.PORT ?? 4000,
@@ -34,5 +39,6 @@ export const ENV = {
   MONGODB_DB_NAME: env.MONGODB_DB_NAME,
   ACCESS_TOKEN_SECRET: env.ACCESS_TOKEN_SECRET,
   ACCESS_TOKEN_EXPIRES_IN: env.ACCESS_TOKEN_EXPIRES_IN,
+  DEBUG_PLAYBACK: truthyEnv(env.DEBUG_PLAYBACK),
 } as const;
 

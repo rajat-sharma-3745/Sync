@@ -1,5 +1,6 @@
 import type { Server, Socket } from 'socket.io';
 
+import { ENV } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { Room } from '../db/models/Room.js';
 import { QueueItem } from '../db/models/QueueItem.js';
@@ -95,6 +96,19 @@ export const registerPlaybackSocketHandlers = (
     const state = await getOrHydratePlaybackState(roomId);
     if (!state) return;
 
+    if (ENV.DEBUG_PLAYBACK) {
+      logger.info('playback:state-request', {
+        roomId,
+        socketId: socket.id,
+        userId: user.userId,
+        state: {
+          videoId: state.videoId,
+          position: state.position,
+          isPlaying: state.isPlaying,
+        },
+      });
+    }
+
     socket.emit('playback:state', {
       roomId,
       ...state,
@@ -148,6 +162,15 @@ export const registerPlaybackSocketHandlers = (
           username: user.username,
         },
       });
+
+      if (ENV.DEBUG_PLAYBACK) {
+        logger.info('playback:play broadcast', {
+          roomId,
+          videoId,
+          position,
+          triggeredBy: { userId: user.userId, username: user.username },
+        });
+      }
     },
   );
 
@@ -201,6 +224,14 @@ export const registerPlaybackSocketHandlers = (
           username: user.username,
         },
       });
+
+      if (ENV.DEBUG_PLAYBACK) {
+        logger.info('playback:pause broadcast', {
+          roomId,
+          position,
+          triggeredBy: { userId: user.userId, username: user.username },
+        });
+      }
     },
   );
 
