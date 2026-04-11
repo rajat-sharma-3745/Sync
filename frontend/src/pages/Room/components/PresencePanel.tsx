@@ -1,4 +1,5 @@
 import { useRoom } from '../../../hooks/useRoom';
+import Button from '../../../components/ui/Button';
 
 const statusLabel: Record<string, string> = {
   synced: 'Synced',
@@ -7,7 +8,21 @@ const statusLabel: Record<string, string> = {
   away: 'Away',
 };
 
-const PresencePanel = () => {
+interface PresencePanelProps {
+  showModerationActions?: boolean;
+  currentUserId?: string;
+  pendingActionUserId?: string | null;
+  onKickMember?: (userId: string) => void;
+  onBanMember?: (userId: string) => void;
+}
+
+const PresencePanel = ({
+  showModerationActions = false,
+  currentUserId,
+  pendingActionUserId = null,
+  onKickMember,
+  onBanMember,
+}: PresencePanelProps) => {
   const { presence } = useRoom();
 
   return (
@@ -27,11 +42,36 @@ const PresencePanel = () => {
               <span className="truncate text-neutral-200">
                 {member.username}
               </span>
-              {member.status && (
-                <span className="shrink-0 rounded bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-400">
-                  {statusLabel[member.status] ?? member.status}
-                </span>
-              )}
+              <div className="flex items-center gap-1.5">
+                {member.status && (
+                  <span className="shrink-0 rounded bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-400">
+                    {statusLabel[member.status] ?? member.status}
+                  </span>
+                )}
+                {showModerationActions && member.userId !== currentUserId && (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={pendingActionUserId === member.userId}
+                      onClick={() => onKickMember?.(member.userId)}
+                    >
+                      Kick
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-rose-300 hover:bg-rose-900/30"
+                      disabled={pendingActionUserId === member.userId}
+                      onClick={() => onBanMember?.(member.userId)}
+                    >
+                      Ban
+                    </Button>
+                  </>
+                )}
+              </div>
             </li>
           ))}
         </ul>

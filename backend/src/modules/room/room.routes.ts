@@ -15,6 +15,7 @@ import {
   updateRoomHandler,
   toggleQueueLockHandler,
   kickMemberHandler,
+  banMemberHandler,
   transferHostHandler,
 } from './room.controller.js';
 
@@ -91,6 +92,12 @@ router.post(
   '/rooms/:roomId/kick',
   requireAuth,
   asyncHandler(kickMemberHandler),
+);
+
+router.post(
+  '/rooms/:roomId/ban',
+  requireAuth,
+  asyncHandler(banMemberHandler),
 );
 
 router.post(

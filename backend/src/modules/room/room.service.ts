@@ -717,6 +717,45 @@ export const kickMember = async (
     );
   }
 
+  if (target.role === RoomMemberRole.HOST) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Host cannot be kicked');
+  }
+
+  await target.deleteOne();
+};
+
+export const banMember = async (
+  roomId: string,
+  hostUserId: string,
+  targetUserId: string,
+): Promise<void> => {
+  const { room, member } = await ensureMember(roomId, hostUserId);
+
+  assertIsHost(member);
+
+  if (hostUserId === targetUserId) {
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      'Host cannot ban themselves via this endpoint',
+    );
+  }
+
+  const target = await RoomMember.findOne({
+    roomId: room._id,
+    userId: targetUserId,
+  }).exec();
+
+  if (!target) {
+    throw new ApiError(
+      StatusCodes.NOT_FOUND,
+      'Target user is not a member of this room',
+    );
+  }
+
+  if (target.role === RoomMemberRole.HOST) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Host cannot be banned');
+  }
+
   target.isBanned = true;
   await target.save();
 };

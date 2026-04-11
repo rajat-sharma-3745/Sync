@@ -12,6 +12,10 @@ export interface ToggleQueueLockPayload {
   queueLocked: boolean;
 }
 
+interface RoomMemberActionPayload {
+  userId: string;
+}
+
 export const roomApi = {
   listPublicRooms: (): Promise<{ rooms: RoomListItem[] }> =>
     httpClient.get<{ rooms: RoomListItem[] }>('/api/rooms/public'),
@@ -57,6 +61,18 @@ export const roomApi = {
     httpClient.post<Room>(
       `/api/rooms/${encodeURIComponent(roomId)}/queue-lock`,
       { roomId, queueLocked } satisfies ToggleQueueLockPayload,
+    ),
+
+  kickMember: (roomId: string, userId: string): Promise<{ success: true }> =>
+    httpClient.post<{ success: true }>(
+      `/api/rooms/${encodeURIComponent(roomId)}/kick`,
+      { userId } satisfies RoomMemberActionPayload,
+    ),
+
+  banMember: (roomId: string, userId: string): Promise<{ success: true }> =>
+    httpClient.post<{ success: true }>(
+      `/api/rooms/${encodeURIComponent(roomId)}/ban`,
+      { userId } satisfies RoomMemberActionPayload,
     ),
 };
 

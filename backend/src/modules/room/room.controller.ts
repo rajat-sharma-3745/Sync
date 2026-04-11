@@ -6,6 +6,7 @@ import {
   parseCreateRoomBody,
   parseUpdateRoomBody,
   parseKickMemberBody,
+  parseBanMemberBody,
   parseTransferHostBody,
   parseToggleQueueLockBody,
 } from './room.schemas.js';
@@ -23,9 +24,11 @@ import {
   updateRoom,
   toggleQueueLock,
   kickMember,
+  banMember,
   transferHost,
 } from './room.service.js';
 import { getIo } from '../../sockets/index.js';
+import { removeUserFromRoomPresence } from '../../sockets/room.socket.js';
 
 export const createRoomHandler = async (
   req: Request,
@@ -241,9 +244,36 @@ export const kickMemberHandler = async (
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Not authenticated');
   }
 
+  const { roomId } = req.params;
+  if (!roomId || Array.isArray(roomId)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid Room ID');
+  }
   const body = parseKickMemberBody(req.body);
 
-  await kickMember(body.roomId, req.user.userId, body.userId);
+  await kickMember(roomId, req.user.userId, body.userId);
+  const io = getIo();
+  removeUserFromRoomPresence(io, roomId, body.userId);
+
+  ok(res, { success: true });
+};
+
+export const banMemberHandler = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  if (!req.user) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Not authenticated');
+  }
+
+  const { roomId } = req.params;
+  if (!roomId || Array.isArray(roomId)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid Room ID');
+  }
+  const body = parseBanMemberBody(req.body);
+
+  await banMember(roomId, req.user.userId, body.userId);
+  const io = getIo();
+  removeUserFromRoomPresence(io, roomId, body.userId);
 
   ok(res, { success: true });
 };

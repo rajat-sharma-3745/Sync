@@ -28,11 +28,16 @@ export const joinByInviteSchema = z.object({
 export type JoinByInviteInput = z.infer<typeof joinByInviteSchema>;
 
 export const kickMemberSchema = z.object({
-  roomId: z.string().trim(),
   userId: z.string().trim(),
 });
 
 export type KickMemberInput = z.infer<typeof kickMemberSchema>;
+
+export const banMemberSchema = z.object({
+  userId: z.string().trim(),
+});
+
+export type BanMemberInput = z.infer<typeof banMemberSchema>;
 
 export const transferHostSchema = z.object({
   roomId: z.string().trim(),
@@ -56,6 +61,9 @@ export const parseUpdateRoomBody = (body: unknown): UpdateRoomInput =>
 
 export const parseKickMemberBody = (body: unknown): KickMemberInput =>
   kickMemberSchema.parse(body);
+
+export const parseBanMemberBody = (body: unknown): BanMemberInput =>
+  banMemberSchema.parse(body);
 
 export const parseTransferHostBody = (body: unknown): TransferHostInput =>
   transferHostSchema.parse(body);

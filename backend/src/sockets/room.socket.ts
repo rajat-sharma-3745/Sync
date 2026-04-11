@@ -74,6 +74,35 @@ export const broadcastPresence = (io: Server, roomId: string): void => {
   io.to(roomId).emit('room:presence', users);
 };
 
+export const removeUserFromRoomPresence = (
+  io: Server,
+  roomId: string,
+  userId: string,
+): void => {
+  const sockets = roomMembers.get(roomId);
+  if (!sockets) return;
+
+  const socketIdsToRemove: string[] = [];
+  for (const [socketId, entry] of sockets.entries()) {
+    if (entry.userId === userId) {
+      socketIdsToRemove.push(socketId);
+    }
+  }
+
+  if (socketIdsToRemove.length === 0) return;
+
+  for (const socketId of socketIdsToRemove) {
+    sockets.delete(socketId);
+    void io.sockets.sockets.get(socketId)?.leave(roomId);
+  }
+
+  if (sockets.size === 0) {
+    roomMembers.delete(roomId);
+  }
+
+  broadcastPresence(io, roomId);
+};
+
 export const registerRoomSocketHandlers = (io: Server, socket: Socket): void => {
   const user = socket.data.user as { userId: string; username: string } | undefined;
 

@@ -28,6 +28,7 @@ const RoomPage = () => {
   const [desktopPanel, setDesktopPanel] = useState<'chat' | 'members'>('chat');
   const [joinRequests, setJoinRequests] = useState<RoomJoinRequest[]>([]);
   const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
+  const [memberActionUserId, setMemberActionUserId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!roomId) return;
@@ -102,6 +103,50 @@ const RoomPage = () => {
     }
   };
 
+  const isHost = currentRoom?.hostId === user?.id;
+
+  const handleKickMember = async (targetUserId: string) => {
+    if (!currentRoom || !isHost) return;
+    setMemberActionUserId(targetUserId);
+    try {
+      await roomApi.kickMember(currentRoom.id, targetUserId);
+      pushToast({
+        type: 'success',
+        title: 'Member kicked',
+        message: 'The member was removed from this room.',
+      });
+    } catch {
+      pushToast({
+        type: 'error',
+        title: 'Kick failed',
+        message: 'Could not kick this member.',
+      });
+    } finally {
+      setMemberActionUserId(null);
+    }
+  };
+
+  const handleBanMember = async (targetUserId: string) => {
+    if (!currentRoom || !isHost) return;
+    setMemberActionUserId(targetUserId);
+    try {
+      await roomApi.banMember(currentRoom.id, targetUserId);
+      pushToast({
+        type: 'success',
+        title: 'Member banned',
+        message: 'The member can no longer join this room.',
+      });
+    } catch {
+      pushToast({
+        type: 'error',
+        title: 'Ban failed',
+        message: 'Could not ban this member.',
+      });
+    } finally {
+      setMemberActionUserId(null);
+    }
+  };
+
   if (!roomId) {
     navigate('/rooms');
     return null;
@@ -121,7 +166,7 @@ const RoomPage = () => {
     <AppLayout>
       <div className="flex min-h-0 flex-1 flex-col">
         <RoomHeader />
-        {currentRoom.hostId === user?.id && joinRequests.length > 0 && (
+        {isHost && joinRequests.length > 0 && (
           <div className="mx-4 mt-4 rounded-xl border border-amber-600/40 bg-amber-500/10 p-3 md:mx-6">
             <div className="mb-2 flex items-center justify-between">
               <p className="text-sm font-medium text-amber-200">Join requests</p>
@@ -203,7 +248,15 @@ const RoomPage = () => {
 
             {mobilePanel === 'queue' && <QueuePanel />}
             {mobilePanel === 'chat' && <ChatPanel />}
-            {mobilePanel === 'members' && <PresencePanel />}
+            {mobilePanel === 'members' && (
+              <PresencePanel
+                showModerationActions={isHost}
+                currentUserId={user?.id}
+                pendingActionUserId={memberActionUserId}
+                onKickMember={handleKickMember}
+                onBanMember={handleBanMember}
+              />
+            )}
           </div>
 
           <aside className="hidden w-full shrink-0 lg:sticky lg:top-6 lg:flex lg:max-h-[calc(100vh-8rem)] lg:w-96 lg:flex-col lg:gap-3 lg:self-start">
@@ -233,7 +286,17 @@ const RoomPage = () => {
             </div>
 
             <div className="min-h-0 overflow-y-auto">
-              {desktopPanel === 'chat' ? <ChatPanel /> : <PresencePanel />}
+              {desktopPanel === 'chat' ? (
+                <ChatPanel />
+              ) : (
+                <PresencePanel
+                  showModerationActions={isHost}
+                  currentUserId={user?.id}
+                  pendingActionUserId={memberActionUserId}
+                  onKickMember={handleKickMember}
+                  onBanMember={handleBanMember}
+                />
+              )}
             </div>
           </aside>
         </div>
