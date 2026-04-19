@@ -176,14 +176,14 @@ const JoinByInvitePage = () => {
   return (
     <AppLayout>
       <DashboardLayout>
-        <div className="max-w-md">
+        <div className="min-w-0 max-w-md">
           <h1 className="text-2xl font-semibold text-neutral-50">Join with invite code</h1>
           <p className="mt-1 text-sm text-neutral-400">
             Paste the invite code or the full join link shared by the room host.
           </p>
-          <Card className="mt-6 p-6">
+          <Card className="mt-6 p-4 sm:p-6">
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
+              <div className="min-w-0">
                 <label htmlFor="invite-code" className="mb-1 block text-sm font-medium text-neutral-300">
                   Invite code
                 </label>
@@ -192,20 +192,28 @@ const JoinByInvitePage = () => {
                   type="text"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="Paste code or link (e.g. ABC123 or https://…/join/ABC123)"
+                  placeholder="ABC123 or paste join link"
                   autoComplete="off"
                   disabled={joining}
+                  className="min-w-0 text-base sm:text-sm"
                 />
+                <p className="mt-1.5 text-xs leading-snug text-neutral-500">
+                  You can paste a short code or the full URL (including <span className="font-mono text-neutral-400">/join/…</span>).
+                </p>
               </div>
-              <div className="flex gap-3">
-                <Button type="submit" disabled={joining || !parsedCode || (Boolean(pendingRequest) && !pendingExpired)}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                <Button
+                  type="submit"
+                  className="w-full shrink-0 sm:w-auto"
+                  disabled={joining || !parsedCode || (Boolean(pendingRequest) && !pendingExpired)}
+                >
                   {joining
                     ? 'Sending…'
                     : pendingRequest && !pendingExpired
                       ? 'Awaiting approval'
                       : 'Request to join'}
                 </Button>
-                <Button asChild variant="secondary" disabled={joining}>
+                <Button asChild variant="secondary" className="w-full shrink-0 sm:w-auto" disabled={joining}>
                   <Link to="/rooms">Back to rooms</Link>
                 </Button>
               </div>

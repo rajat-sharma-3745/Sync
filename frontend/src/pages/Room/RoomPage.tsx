@@ -259,7 +259,7 @@ const RoomPage = () => {
             )}
           </div>
 
-          <aside className="hidden w-full shrink-0 lg:sticky lg:top-6 lg:flex lg:max-h-[calc(100vh-8rem)] lg:w-96 lg:flex-col lg:gap-3 lg:self-start">
+          <aside className="hidden w-full shrink-0 lg:sticky lg:top-6 lg:flex lg:max-h-[calc(100dvh-8rem)] lg:w-96 lg:flex-col lg:gap-3 lg:self-start">
             <div className="grid grid-cols-2 gap-2 rounded-lg border border-neutral-800 bg-neutral-950/50 p-1">
               <button
                 type="button"

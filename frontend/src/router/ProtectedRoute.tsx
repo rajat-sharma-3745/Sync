@@ -9,7 +9,7 @@ const ProtectedRoute = ({ children }: PropsWithChildren) => {
 
   if (initializing) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-(--color-bg) text-(--color-text)">
+      <div className="flex h-dvh max-h-dvh items-center justify-center overflow-hidden bg-(--color-bg) text-(--color-text)">
         <span className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-400 border-t-transparent" />
       </div>
     );
