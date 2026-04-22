@@ -27,6 +27,7 @@ import {
   banMember,
   transferHost,
 } from './room.service.js';
+import { Room } from '../../db/models/Room.js';
 import { getIo } from '../../sockets/index.js';
 import { removeUserFromRoomPresence } from '../../sockets/room.socket.js';
 
@@ -196,6 +197,16 @@ export const cancelJoinRequestHandler = async (
   }
 
   await cancelJoinRequest(roomId, requestId, req.user.userId);
+
+  const roomDoc = await Room.findById(roomId).select('hostId').lean();
+  if (roomDoc?.hostId) {
+    const io = getIo();
+    io.to(`user:${roomDoc.hostId.toString()}`).emit('room:join-request-cancelled', {
+      roomId,
+      requestId,
+    });
+  }
+
   ok(res, { success: true });
 };
 

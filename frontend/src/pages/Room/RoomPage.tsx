@@ -10,6 +10,7 @@ import PresencePanel from './components/PresencePanel';
 import { useRoom } from '../../hooks/useRoom';
 import { useAuth } from '../../hooks/useAuth';
 import { useSocket } from '../../hooks/useSocket';
+import { HttpError } from '../../api/httpClient';
 import { roomApi } from '../../api/roomApi';
 import type { RoomJoinRequest } from '../../types/room';
 import Button from '../../components/ui/Button';
@@ -68,9 +69,16 @@ const RoomPage = () => {
       );
     };
 
+    const handleJoinRequestCancelled = (payload: { roomId?: string; requestId?: string }) => {
+      if (!payload.roomId || !payload.requestId || payload.roomId !== currentRoom.id) return;
+      setJoinRequests((prev) => prev.filter((r) => r.id !== payload.requestId));
+    };
+
     socket.on('room:join-requested', handleJoinRequested);
+    socket.on('room:join-request-cancelled', handleJoinRequestCancelled);
     return () => {
       socket.off('room:join-requested', handleJoinRequested);
+      socket.off('room:join-request-cancelled', handleJoinRequestCancelled);
     };
   }, [socket, currentRoom, user]);
 
@@ -92,12 +100,21 @@ const RoomPage = () => {
         title: action === 'approve' ? 'Request approved' : 'Request denied',
         message: 'Join request updated.',
       });
-    } catch {
-      pushToast({
-        type: 'error',
-        title: 'Request update failed',
-        message: 'Could not update this join request.',
-      });
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 409) {
+        setJoinRequests((prev) => prev.filter((request) => request.id !== requestId));
+        pushToast({
+          type: 'info',
+          title: 'Request no longer pending',
+          message: 'This join request was withdrawn or is no longer active.',
+        });
+      } else {
+        pushToast({
+          type: 'error',
+          title: 'Request update failed',
+          message: 'Could not update this join request.',
+        });
+      }
     } finally {
       setReviewingRequestId(null);
     }
